@@ -6,37 +6,41 @@ const URL_SHA = "https://factorio.com/download/sha256sums/";
 function main() {
   const ss = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
-  // 1. Получаем текущие данные с сайта и ограничиваем до 4000 символов
-  const response = UrlFetchApp.fetch(URL_SHA);
-  const currentContent = response.getContentText().substring(0, 4000);
-  
-  // 2. Загружаем старые данные из таблицы (A1 - хеш, B1 - ID сообщения)
+  // Читаем старые данные
+  // A1 - сохраненный хеш, B1 - ID сообщения для открепления
   const lastHash = ss.getRange("A1").getValue();
   const lastPinId = ss.getRange("B1").getValue();
-  
-  // Если это первый запуск (ячейка пустая)
+
+  // --- ЛОГИКА ОТКРЕПЛЕНИЯ ---
+  // Если в B1 есть ID, открепляем сообщение и очищаем ячейку в любом случае
+  if (lastPinId) {
+    unpinMessage(lastPinId);
+    ss.getRange("B1").clearContent(); 
+    console.log("Ячейка B1 очищена после открепления.");
+  }
+
+  // --- ЛОГИКА ПРОВЕРКИ ОБНОВЛЕНИЙ ---
+  const response = UrlFetchApp.fetch(URL_SHA);
+  const currentContent = response.getContentText().substring(0, 4000);
+
+  // Если это первый запуск (нет хеша в A1)
   if (!lastHash) {
     ss.getRange("A1").setValue(currentContent);
-    console.log("Первый запуск. Данные (4000 симв.) сохранены.");
+    console.log("Первый запуск. Хеш сохранен.");
     return;
   }
-  
-  // 3. Проверяем изменения
+
+  // Если хеш изменился
   if (currentContent !== lastHash) {
     const version = extractVersion(currentContent);
     
     if (version) {
-      console.log("Найдена новая версия: " + version);
+      console.log("Новая версия: " + version);
       
-      // Открепляем старое сообщение, если оно было сохранено ранее
-      if (lastPinId) {
-        unpinMessage(lastPinId);
-      }
-      
-      // Отправляем новое сообщение и закрепляем его
+      // Отправляем новое и закрепляем
       const newPinId = sendAndPin(version);
       
-      // Сохраняем обновленные данные в таблицу
+      // Обновляем хеш в A1 и записываем новый ID в B1
       ss.getRange("A1").setValue(currentContent);
       ss.getRange("B1").setValue(newPinId);
     }
@@ -46,7 +50,6 @@ function main() {
 }
 
 function extractVersion(text) {
-  // Ищем версию в формате X.Y.Z
   const regex = /Setup_Factorio_(\d+\.\d+\.\d+)\.exe\.zip/;
   const match = text.match(regex);
   return match ? match[1] : null;
@@ -73,8 +76,8 @@ function sendAndPin(version) {
   });
   
   const msgId = JSON.parse(response.getContentText()).result.message_id;
-  
-  // Закрепляем новое сообщение
+
+  // Закрепляем
   const pinUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/pinChatMessage`;
   UrlFetchApp.fetch(pinUrl, {
     "method": "post",
@@ -100,8 +103,8 @@ function unpinMessage(messageId) {
         "message_id": messageId
       })
     });
-    console.log("Предыдущее сообщение откреплено.");
+    console.log("Сообщение " + messageId + " откреплено.");
   } catch (e) {
-    console.warn("Не удалось открепить сообщение: " + e);
+    console.warn("Не удалось открепить " + messageId + ". Возможно, оно уже откреплено вручную.");
   }
 }
